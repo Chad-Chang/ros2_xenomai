@@ -28,21 +28,22 @@
    HelloworldPublisher()
    : Node("helloworld_publisher"), count_(0)
    {
-     auto qos_profile = rclcpp::QoS(rclcpp::KeepLast(10));
+     auto qos_profile = rclcpp::QoS(rclcpp::KeepLast(1));
      helloworld_publisher_ = this->create_publisher<std_msgs::msg::String>(
        "helloworld", qos_profile);
-     timer_ = this->create_wall_timer(
-       1s, std::bind(&HelloworldPublisher::publish_helloworld_msg, this));
+    //  timer_ = this->create_wall_timer(
+    //    1s, std::bind(&HelloworldPublisher::publish_helloworld_msg, this));
    }
-
- private:
-   void publish_helloworld_msg()
+  void publish_helloworld_msg()
    {
+    
      auto msg = std_msgs::msg::String();
      msg.data = "Hello World: " + std::to_string(count_++);
      RCLCPP_INFO(this->get_logger(), "Published message: '%s'", msg.data.c_str());
      helloworld_publisher_->publish(msg);
    }
+ private:
+   
    rclcpp::TimerBase::SharedPtr timer_;
    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr helloworld_publisher_;
    size_t count_;
@@ -68,9 +69,46 @@
 // C 스타일의 함수로 전달할 함수를 정의
 void *realtime_thread(void *arg)
 {
-    auto node_ptr = static_cast<std::shared_ptr<HelloworldPublisher>*>(arg);
-    rclcpp::spin(*node_ptr);  // ROS2 노드 실행
+    auto node_ptr2 = static_cast<std::shared_ptr<HelloworldPublisher>*>(arg);
+    // rclcpp::spin(*node_ptr);  // ROS2 노드 실행
+    // return NULL;
+
+    int tfd; // desired timer
+    struct timespec trt; // 실제 타이머
+    struct itimerspec timer_conf; //
+    struct timespec expected; //
+    clock_gettime(CLOCK_MONOTONIC, &expected);
+    tfd = timerfd_create(CLOCK_MONOTONIC, 0); //create timer descriptor
+    if(tfd == -1) error(1, errno, "timerfd_create()");
+    timer_conf.it_value = expected; //from now
+    timer_conf.it_interval.tv_sec = 0;
+    timer_conf.it_interval.tv_nsec = RT_PERIOD_MS*1000000; //interval with RT_PERIOD_MS
+    // 타이머의 interval time을 설정해줌 => timer configuration을 설정해주는 부분 - nano sec단위로 해주나봄.
+    int err = timerfd_settime(tfd, TFD_TIMER_ABSTIME, &timer_conf, NULL); //set the timer descriptor
+    if(err) error(1, errno, "timerfd_setting()");
+
+
+    uint64_t ticks;
+    while(!sigMainKill)
+    { 
+        (*node_ptr2)->publish_helloworld_msg();
+        cnt +=0.001;
+        err = read(tfd, &ticks,sizeof(ticks));  // 이게 RT를 유지해주는 놈임.
+        clock_gettime(CLOCK_REALTIME, &trt); //get the system time
+        if(err<0) error(1,errno, "read()");
+
+        std::cout <<"helloworld" << " " << cnt<<std::endl;
+        
+
+        if(!pthread_mutex_trylock(&data_mut))
+        {
+            pthread_mutex_unlock(&data_mut);
+        }
+    }
+    pthread_exit(NULL); //while loop 종료 -> thread 종료
     return NULL;
+
+    
 }
 
 int main(int argc, char *argv[])
@@ -108,10 +146,12 @@ int main(int argc, char *argv[])
     ret = pthread_create(&rt, &rtattr, realtime_thread, &node_ptr); //create RT thread
     if(ret) error(1, ret, "pthread_create(realtime_thread)");
     pthread_attr_destroy(&rtattr);
-    while(cnt < 5);
-
+    while(cnt < 10);
+    sigMainKill = 1;
     usleep(2000);
     cleanup();
+    rclcpp::shutdown();
+  return 0;
 }
 
  static void cleanup(void)
@@ -120,9 +160,3 @@ int main(int argc, char *argv[])
      pthread_join(rt, NULL);
  }
 
-// static void *realtime_thread(void * arg)
-// {
-//     (void) arg;
-//     std::cout << "hello world"<<std::endl;
-//     return NULL;
-// }

@@ -40,8 +40,13 @@ add_executable(xeno_node src/main.cpp)
 ament_target_dependencies(xeno_node rclcpp std_msgs)
 target_link_libraries(xeno_node pthread)
 
+add_executable(xeno_node2 src/subs.cpp)
+ament_target_dependencies(xeno_node2 rclcpp std_msgs)
+target_link_libraries(xeno_node2 pthread)
+
 install(TARGETS
     xeno_node
+	xeno_node2
   DESTINATION lib/${PROJECT_NAME})
 
 
