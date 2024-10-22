@@ -18,7 +18,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/string.hpp"
 using std::placeholders::_1;
-
+using namespace std::chrono_literals;
 
 #define RT_PERIOD_MS 1 //1msec
 #define CPU_AFFINITY_NUM 1 // 쓰레드를 특정 CPU코어에 고정 -> 어떤 코어를 사용할지 선택 가능
@@ -39,7 +39,9 @@ public:
   HelloworldSubscriber()
   : Node("Helloworld_subscriber")
   {
-    auto qos_profile = rclcpp::QoS(rclcpp::KeepLast(1));
+    auto qos_profile = rclcpp::QoS(rclcpp::KeepLast(1)).reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
+    // auto qos_profile = rclcpp::QoS(rclcpp::KeepLast(1)).deadline(rclcpp::Duration(100ms));
+    
     helloworld_subscriber_ = this->create_subscription<std_msgs::msg::String>(
       "helloworld",
       qos_profile,
@@ -54,7 +56,7 @@ public:
     timer_conf.it_interval.tv_nsec = RT_PERIOD_MS*1000000; //interval with RT_PERIOD_MS
 
     //timer 설정 : read함수의 return 주기 : sampling time
-    int err = timerfd_settime(tfd, TFD_TIMER_ABSTIME, &timer_conf, NULL); 
+    // int err = timerfd_settime(tfd, TFD_TIMER_ABSTIME, &timer_conf, NULL); 
         
     if(err) error(1, errno, "timerfd_setting()");
 
@@ -62,28 +64,41 @@ public:
     old_t1 = 0;
     delta_t1 = 0;
     sampling_ms = 0;
+    // looptime = 0;
+    // looptime_old = 0;
   }
 
 private:
   
   void subscribe_topic_message(const std_msgs::msg::String::SharedPtr msg) //const
   {
+    (void) msg;
     clock_gettime(CLOCK_REALTIME, &trt);
+    // looptime_old = trt.tv_nsec; 
     // (void) msg;
     old_t1 = t1;
     t1 = trt.tv_nsec;
     delta_t1 = t1 - old_t1;
     sampling_ms = (double)delta_t1*0.000001;
-    double jitter = sampling_ms - RT_PERIOD_MS;  
+    double jitter = sampling_ms - 1.000; 
     
-    if(jitter>RT_PERIOD_MS+0.5) overrun += 1; 
-    printf("PERIODIC TIME --- %.4f, Jitter --- %+.4f, OVERRUN --- %d , Received message: '%s'\r\n", sampling_ms, jitter, overrun, msg->data.c_str());
+    // if(ticks>1) overrun += ticks - 1; 
+    if(jitter >1) overrun +=1;
+    
     // RCLCPP_INFO(this->get_logger(), "Received message: '%s' , cnt = '%f'", msg->data.c_str(), cnt);
     cnt += 0.001;
+    // clock_gettime(CLOCK_REALTIME, &trt);
+    // looptime = trt.tv_nsec;
+    // double duration = (double)(looptime - looptime_old);
+    printf("PERIODIC TIME --- %.4f, Jitter --- %+.4f, OVERRUN --- %d , Received message: '%s'\r\n", sampling_ms, jitter, overrun, msg->data.c_str());
+    // printf("loop time = %f\r\n", duration);
+
   }
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr helloworld_subscriber_;
   struct timespec trt; //
   long t1 ;
+  // long looptime ;
+  // long looptime_old ;
   long old_t1;
   long delta_t1;
   double sampling_ms;

@@ -22,26 +22,29 @@
  #include "std_msgs/msg/string.hpp"
  using namespace std::chrono_literals;
 
+ // cpu 코어당 상용량 확인 : top , 1
+ double cnt = 0 ;
+
  class HelloworldPublisher : public rclcpp::Node
  {
  public:
    HelloworldPublisher()
    : Node("helloworld_publisher"), count_(0)
    {
-     auto qos_profile = rclcpp::QoS(rclcpp::KeepLast(1));
+     auto qos_profile = rclcpp::QoS(rclcpp::KeepLast(1)).reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
+    //  auto qos_profile = rclcpp::QoS(rclcpp::KeepLast(1), rmw_qos_profile_sensor_data);//.reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
      helloworld_publisher_ = this->create_publisher<std_msgs::msg::String>(
        "helloworld", qos_profile);
     //  timer_ = this->create_wall_timer(
     //    1s, std::bind(&HelloworldPublisher::publish_helloworld_msg, this));
    }
   void publish_helloworld_msg()
-   {
-    
-     auto msg = std_msgs::msg::String();
-     msg.data = "Hello World: " + std::to_string(count_++);
-     RCLCPP_INFO(this->get_logger(), "Published message: '%s'", msg.data.c_str());
-     helloworld_publisher_->publish(msg);
-   }
+  {
+    auto msg = std_msgs::msg::String();
+    msg.data = "Cello Worldsadfasdfasdfasfadsfasdfasdfasdfasdfasfasdfsadf sdafasdfa sdf asdfasf asdf asdf asdf asdf asdf asdf asdf asdf asdf asdf adfsadfa sdf asdf asdf asdf asdf asdf wef eq vfevczxcvaf verfvsad: " + std::to_string(count_++);
+    helloworld_publisher_->publish(msg);
+    // RCLCPP_INFO(this->get_logger(), "Published message: '%s' and real count = %f", msg.data.c_str(),cnt);
+  }
  private:
    
    rclcpp::TimerBase::SharedPtr timer_;
@@ -62,8 +65,15 @@
 //  static void *realtime_thread(void *arg);
 
 
- // cpu 코어당 상용량 확인 : top , 1
- double cnt = 0 ;
+
+
+long t1 = 0;
+long old_t1= 0;
+long delta_t1= 0;
+double sampling_ms= 0;
+int tfd= 0;
+int err;
+
 
 
 // C 스타일의 함수로 전달할 함수를 정의
@@ -89,21 +99,31 @@ void *realtime_thread(void *arg)
 
 
     uint64_t ticks;
+    uint32_t overrun = 0;
     while(!sigMainKill)
-    { 
-        (*node_ptr2)->publish_helloworld_msg();
-        cnt +=0.001;
-        err = read(tfd, &ticks,sizeof(ticks));  // 이게 RT를 유지해주는 놈임.
-        clock_gettime(CLOCK_REALTIME, &trt); //get the system time
-        if(err<0) error(1,errno, "read()");
+    {
+      old_t1 = t1;
+      t1 = trt.tv_nsec;
+      delta_t1 = t1 - old_t1;
+      sampling_ms = (double)delta_t1*0.000001;
+      double jitter = sampling_ms - 1.000; 
 
-        std::cout <<"helloworld" << " " << cnt<<std::endl;
-        
+      // if(ticks>1) overrun += ticks - 1; 
+      if(jitter >1) overrun +=1;
 
-        if(!pthread_mutex_trylock(&data_mut))
-        {
-            pthread_mutex_unlock(&data_mut);
-        }
+      (*node_ptr2)->publish_helloworld_msg();
+      cnt +=0.001;
+      err = read(tfd, &ticks,sizeof(ticks));  // 이게 RT를 유지해주는 놈임.
+      clock_gettime(CLOCK_REALTIME, &trt); //get the system time
+      
+      if(err<0) error(1,errno, "read()");
+
+      printf("PERIODIC TIME --- %.4f, Jitter --- %+.4f, OVERRUN --- %d \r\n", sampling_ms, jitter, overrun);
+      
+      if(!pthread_mutex_trylock(&data_mut))
+      {
+          pthread_mutex_unlock(&data_mut);
+      }
     }
     pthread_exit(NULL); //while loop 종료 -> thread 종료
     return NULL;
