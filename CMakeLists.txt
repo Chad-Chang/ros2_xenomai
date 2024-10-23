@@ -36,18 +36,32 @@ INCLUDE_DIRECTORIES(/usr/xenomai/include /usr/xenomai/include/cobalt /usr/xenoma
 										LINK_DIRECTORIES(/usr/xenomai/lib /usr/xenomai/lib/xenomai)
 LINK_LIBRARIES(analogy cobalt copperplate -L/usr/xenomai/lib/xenomai/bootstrap.o rt)
 
-add_executable(xeno_node src/main.cpp)
+add_executable(xeno_node src/pub_shm.cpp)
 ament_target_dependencies(xeno_node rclcpp std_msgs)
 target_link_libraries(xeno_node pthread)
 
-add_executable(xeno_node2 src/subs.cpp)
+add_executable(xeno_node2 src/subs_shm.cpp)
 ament_target_dependencies(xeno_node2 rclcpp std_msgs)
 target_link_libraries(xeno_node2 pthread)
+
+
+add_executable(xeno_node_rcl src2/pub_rcl.cpp)
+ament_target_dependencies(xeno_node_rcl rclcpp std_msgs)
+target_link_libraries(xeno_node_rcl pthread)
+
+add_executable(xeno_node_rcl2 src2/subs_rcl.cpp)
+ament_target_dependencies(xeno_node_rcl2 rclcpp std_msgs)
+target_link_libraries(xeno_node_rcl2 pthread)
 
 install(TARGETS
     xeno_node
 	xeno_node2
+    xeno_node_rcl
+    xeno_node_rcl2
   DESTINATION lib/${PROJECT_NAME})
+
+install(DIRECTORY launch 
+    DESTINATION share/${PROJECT_NAME})
 
 
 if(BUILD_TESTING)

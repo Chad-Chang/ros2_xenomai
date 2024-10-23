@@ -128,7 +128,7 @@ void *realtime_thread(void *arg) // ros2의 통신을 사용할때는 argument�
   while(!sigMainKill) // cnt가 어느정도 이상되면 main에서 sigMainkill을 true로 바꿔줌
   {
     // clock_gettime(CLOCK_REALTIME, &trt); //get the system time
-    err = read(tfd, &ticks,sizeof(ticks));  //해당 타이머가 설정한 간격으로 발생한 타이머 틱수를 읽어옴.
+    
     clock_gettime(CLOCK_MONOTONIC, &trt); //get the system time
     /*
     1. 타이머 이벤트 대기 : timer된 sampling마다 타이머가 생존하고, 이후에 타이머가 만료됨-> 만료될때까지 block함. 
@@ -139,8 +139,8 @@ void *realtime_thread(void *arg) // ros2의 통신을 사용할때는 argument�
     t1 = trt.tv_nsec;
     ts = trt.tv_sec;
     delta_t1 = t1 - old_t1;
-    sampling_ms = (double)delta_t1*0.000001;
-    double jitter = sampling_ms - 1.000; 
+    sampling_ms = (double)delta_t1 * 0.000001;
+    // double jitter = sampling_ms - 1.000; 
 
     if(ticks>1) overrun += ticks - 1; 
     // if(jitter >1) overrun +=1; // 차이가 1ms이상
@@ -154,19 +154,20 @@ void *realtime_thread(void *arg) // ros2의 통신을 사용할때는 argument�
 
     data.motor_num = 1;
     data.motor_pos = cnt;
-    data.time_stamp = (double) trt.tv_sec + (trt.tv_nsec/1e9);
+    data.time_stamp = (double) trt.tv_sec + (trt.tv_nsec/1e6);
     memcpy(shm_ptr, &data, sizeof(SharedData));
 
   /*shared memory 전달한 값 확인 */
     // printf("Data written to shared memory: motor_num=%d, motor_pos=%.4f, time_stamp = %.4f\n",
     //       data.motor_num, data.motor_pos, data.time_stamp);
   /* 루프타임 확인 */
-    printf("PERIODIC TIME --- %.4f, Jitter --- %+.4f, OVERRUN --- %d \r\n", sampling_ms, jitter, overrun);
+    // printf("PERIODIC TIME --- %.4f, Jitter --- %+.4f, OVERRUN --- %d \r\n", sampling_ms, jitter, overrun);
     
     if(!pthread_mutex_trylock(&data_mut))
     {
         pthread_mutex_unlock(&data_mut);
     }
+    err = read(tfd, &ticks,sizeof(ticks));  //해당 타이머가 설정한 간격으로 발생한 타이머 틱수를 읽어옴.
   }
   
   // 매핑 해제 및 공유 메모리 닫기

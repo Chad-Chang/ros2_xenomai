@@ -104,9 +104,9 @@ void *realtime_thread(void *arg)
   if(err) error(1, errno, "timerfd_setting()");
 
   while(!sigMainKill)
-  {
-    err = read(tfd, &ticks,sizeof(ticks)); // RT를 유지해주는 놈.
+  {    
     clock_gettime(CLOCK_MONOTONIC, &trt);
+    
     cnt += 0.001;
     old_t1 = t1;
     t1 = trt.tv_nsec;
@@ -117,7 +117,7 @@ void *realtime_thread(void *arg)
 
     if(ticks>1) overrun += ticks - 1;
 
-    double curr_time=(double) trt.tv_sec + (trt.tv_nsec/1e9);
+    double curr_time=(double) trt.tv_sec + (trt.tv_nsec/1e6);
     printf("read shared memory: delay = %+.4f, jitter = %+.4f, OVERRUN = %d \n",
            curr_time-data->time_stamp ,jitter, overrun);
 
@@ -126,6 +126,7 @@ void *realtime_thread(void *arg)
     {
         pthread_mutex_unlock(&data_mut);
     }
+    err = read(tfd, &ticks,sizeof(ticks)); // RT를 유지해주는 놈.
   }  // ret = pthread_create(&rt, &rtattr, realtime_thread, NULL); //create RT thread
 
   pthread_exit(NULL); //while loop 종료 -> thread 종료
@@ -140,7 +141,6 @@ int main(int argc, char * argv[])
   rclcpp::init(argc, argv);
   mlockall(MCL_CURRENT|MCL_FUTURE); 
 
- 
 /*공유 메모리 설정*/
   // 공유 메모리 열기
   shm_fd = shm_open(SHM_NAME, O_RDWR, 0666);
@@ -189,7 +189,6 @@ int main(int argc, char * argv[])
   
   pthread_attr_destroy(&rtattr);
   while(data->motor_pos < 10.001);
-  // while(cnt <10);
   printf("rt ending");
 
   sigMainKill =1 ;
