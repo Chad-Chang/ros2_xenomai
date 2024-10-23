@@ -1,29 +1,44 @@
- #include <stdio.h>
- #include <stdlib.h>
- #include <unistd.h> //C POSIX lib header. Header for accessing to the POSIX OS API
- #include <fcntl.h> //C POSIX lib header. Header for opening and locking files and processing other tasks.
- #include <signal.h> //Header for signal processing
- #include <sys/timerfd.h> //
- #include <string.h>
- #include <malloc.h> //Memory allocation
- #include <pthread.h> //Header for using Thread operation from xenomai
- #include <error.h> //
- #include <errno.h> //Header for defining macros for reporting and retrieving error conditions using the symbol 'errno'
- #include <sys/mman.h> //
- #include <rtdm/ipc.h> //
- #include <iostream>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h> //C POSIX lib header. Header for accessing to the POSIX OS API
+#include <fcntl.h> //C POSIX lib header. Header for opening and locking files and processing other tasks.
+#include <signal.h> //Header for signal processing
+#include <sys/timerfd.h> //
+#include <string.h>
+#include <malloc.h> //Memory allocation
+#include <pthread.h> //Header for using Thread operation from xenomai
+#include <error.h> //
+#include <errno.h> //Header for defining macros for reporting and retrieving error conditions using the symbol 'errno'
+#include <sys/mman.h> //
+#include <rtdm/ipc.h> //
+#include <iostream>
 
- #include <chrono>
- #include <functional>
- #include <memory>
- #include <string>
+#include <chrono>
+#include <functional>
+#include <memory>
+#include <string>
 
- #include "rclcpp/rclcpp.hpp"
- #include "std_msgs/msg/string.hpp"
+#include "rclcpp/rclcpp.hpp"
+#include "std_msgs/msg/string.hpp"
+
+#define SHM_NAME "/my_shared_memory"
+#define SHM_SIZE sizeof(SharedData)
+
+typedef struct {
+    int motor_num;
+    float time_stamp;
+    float motor_pos;
+    float load_pos;
+    float motor_vel;
+    float load_vel;
+    // char name[20];
+} SharedData;
+
  using namespace std::chrono_literals;
 
  // cpu 코어당 상용량 확인 : top , 1
  double cnt = 0 ;
+
 
  class HelloworldPublisher : public rclcpp::Node
  {
@@ -68,18 +83,22 @@
 
 
 long t1 = 0;
+long ts = 0;
 long old_t1= 0;
 long delta_t1= 0;
 double sampling_ms= 0;
 int tfd= 0;
 int err;
+int shm_fd;
+void *shm_ptr;
 
-
+SharedData data;
 
 // C 스타일의 함수로 전달할 함수를 정의
 void *realtime_thread(void *arg)
 {
-    auto node_ptr2 = static_cast<std::shared_ptr<HelloworldPublisher>*>(arg);
+  (void) arg;
+    // auto node_ptr2 = static_cast<std::shared_ptr<HelloworldPublisher>*>(arg);
     // rclcpp::spin(*node_ptr);  // ROS2 노드 실행
     // return NULL;
 
@@ -87,7 +106,7 @@ void *realtime_thread(void *arg)
     struct timespec trt; // 실제 타이머
     struct itimerspec timer_conf; //
     struct timespec expected; //
-    clock_gettime(CLOCK_MONOTONIC, &expected);
+    clock_gettime(CLOCK_MONOTONIC, &expected);  // 고정된 기준으로 증가하는 시간 의미 
     tfd = timerfd_create(CLOCK_MONOTONIC, 0); //create timer descriptor
     if(tfd == -1) error(1, errno, "timerfd_create()");
     timer_conf.it_value = expected; //from now
@@ -102,8 +121,12 @@ void *realtime_thread(void *arg)
     uint32_t overrun = 0;
     while(!sigMainKill)
     {
+      // clock_gettime(CLOCK_REALTIME, &trt); //get the system time
+      clock_gettime(CLOCK_MONOTONIC, &trt); //get the system time
       old_t1 = t1;
+
       t1 = trt.tv_nsec;
+      ts = trt.tv_sec;
       delta_t1 = t1 - old_t1;
       sampling_ms = (double)delta_t1*0.000001;
       double jitter = sampling_ms - 1.000; 
@@ -111,20 +134,33 @@ void *realtime_thread(void *arg)
       // if(ticks>1) overrun += ticks - 1; 
       if(jitter >1) overrun +=1;
 
-      (*node_ptr2)->publish_helloworld_msg();
+      // (*node_ptr2)->publish_helloworld_msg();
       cnt +=0.001;
       err = read(tfd, &ticks,sizeof(ticks));  // 이게 RT를 유지해주는 놈임.
-      clock_gettime(CLOCK_REALTIME, &trt); //get the system time
+      
       
       if(err<0) error(1,errno, "read()");
 
-      printf("PERIODIC TIME --- %.4f, Jitter --- %+.4f, OVERRUN --- %d \r\n", sampling_ms, jitter, overrun);
+      data.motor_num = 1;
+      data.motor_pos = cnt;
+      data.time_stamp = (double) trt.tv_sec + (trt.tv_nsec/1e9);
+      memcpy(shm_ptr, &data, sizeof(SharedData));
+
+      printf("Data written to shared memory: motor_num=%d, motor_pos=%.4f, time_stamp = %.4f\n",
+            data.motor_num, data.motor_pos, data.time_stamp);
+
+      // printf("PERIODIC TIME --- %.4f, Jitter --- %+.4f, OVERRUN --- %d \r\n", sampling_ms, jitter, overrun);
       
       if(!pthread_mutex_trylock(&data_mut))
       {
           pthread_mutex_unlock(&data_mut);
       }
     }
+
+    // 매핑 해제 및 공유 메모리 닫기
+    munmap(shm_ptr, SHM_SIZE);
+    close(shm_fd);
+
     pthread_exit(NULL); //while loop 종료 -> thread 종료
     return NULL;
 
@@ -134,6 +170,30 @@ void *realtime_thread(void *arg)
 int main(int argc, char *argv[])
 {
     
+    // 공유 메모리 생성 및 열기
+    shm_fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0666);
+    if (shm_fd == -1) {
+        perror("shm_open");
+        exit(EXIT_FAILURE);
+    }
+
+    // 공유 메모리 크기 설정
+    if (ftruncate(shm_fd, SHM_SIZE) == -1) {
+        perror("ftruncate");
+        exit(EXIT_FAILURE);
+    }
+
+    // 공유 메모리 매핑
+    shm_ptr = mmap(NULL, SHM_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    if (shm_ptr == MAP_FAILED) {
+        perror("mmap");
+        // SharedData data;
+        exit(EXIT_FAILURE);
+    }
+
+    
+
+   
     // (void) argc; (void) argv;
     rclcpp::init(argc, argv);
     // mlockall(MCL_CURRENT|MCL_FUTURE);
