@@ -24,13 +24,14 @@
 #define SHM_NAME "/mcl_420"
 #define SHM_SIZE sizeof(SharedData)
 
+#define NUMOFMOTOR 12
+
 typedef struct {
-    int motor_num;
+    int motor_num[NUMOFMOTOR];
     float time_stamp;
-    float motor_pos;
-    float load_pos;
-    float motor_vel;
-    float load_vel;
+    double motor_pos[NUMOFMOTOR];
+    double motor_vel[NUMOFMOTOR];
+    double ctrl_input[NUMOFMOTOR];
 } SharedData;
 
 using namespace std::chrono_literals;
@@ -47,9 +48,7 @@ public:
   {
     auto qos_profile = rclcpp::QoS(rclcpp::KeepLast(1)).reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
     helloworld_publisher_ = this->create_publisher<std_msgs::msg::String>(
-      "helloworld", qos_profile);
-  //  timer_ = this->create_wall_timer(
-  //    1s, std::bind(&HelloworldPublisher::publish_helloworld_msg, this));
+      "helloworld", qos_profile);  
   }
   
 void publish_helloworld_msg()
@@ -140,21 +139,26 @@ void *realtime_thread(void *arg) // ros2의 통신을 사용할때는 argument�
     ts = trt.tv_sec;
     delta_t1 = t1 - old_t1;
     sampling_ms = (double)delta_t1 * 0.000001;
-    // double jitter = sampling_ms - 1.000; 
+    double jitter = sampling_ms - 1.000; 
 
-    if(ticks>1) overrun += ticks - 1; 
-    // if(jitter >1) overrun +=1; // 차이가 1ms이상
+    // if(ticks>1) overrun += ticks - 1; 
+    if(jitter >1) overrun +=1; // 차이가 1ms이상
 
     /*통신으로 설정할 때*/
     // (*node_ptr2)->publish_helloworld_msg();
 
-    cnt +=0.001;
+    cnt +=RT_PERIOD_MS*0.001;
     
     if(err<0) error(1,errno, "read()");
 
-    data.motor_num = 1;
-    data.motor_pos = cnt;
-    data.time_stamp = (double) trt.tv_sec + (trt.tv_nsec/1e6);
+    for(int i= 0 ;i <NUMOFMOTOR; i++)
+    {
+      data.time_stamp = (double) trt.tv_sec + (trt.tv_nsec/1e6);
+      data.motor_num[i] = i;
+      data.motor_pos[i] = cnt;
+      data.motor_vel[i] = cnt;
+      data.ctrl_input[i] = cnt;
+    }
     memcpy(shm_ptr, &data, sizeof(SharedData));
 
   /*shared memory 전달한 값 확인 */

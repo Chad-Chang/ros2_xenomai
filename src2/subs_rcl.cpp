@@ -64,6 +64,8 @@ public:
     old_t1 = 0;
     delta_t1 = 0;
     sampling_ms = 0;
+    num_loop_err = 0;
+    loop_old = 0;
     // looptime = 0;
     // looptime_old = 0;
   }
@@ -79,24 +81,29 @@ private:
     old_t1 = t1;
     t1 = trt.tv_nsec;
     delta_t1 = t1 - old_t1;
-    sampling_ms = (double)delta_t1*0.000001;
+    sampling_ms = (double)delta_t1 * 0.000001;
     double jitter = sampling_ms - 1.000; 
     
     // if(ticks>1) overrun += ticks - 1; 
-    if(jitter >1) overrun +=1;
+    if(jitter >1.2 && old_t1!=0) overrun +=1;
     
     // RCLCPP_INFO(this->get_logger(), "Received message: '%s' , cnt = '%f'", msg->data.c_str(), cnt);
     cnt += 0.001;
-    double received_time = std::stod(msg->data); 
+    // double received_time = std::stod(msg->data); s
+    double received_cnt = std::stod(msg->data);
 
     // t1에서 받은 시간을 빼서 delay를 계산
-    double delay = ((double)trt.tv_sec+t1/1e9 - received_time);
+    // double delay = ((double)trt.tv_sec+t1/1e9 - received_time);
+  
+    if(loop_old != 0 &&  
+      trunc(1000*((double)received_cnt -loop_old)) > 1) num_loop_err ++;
 
     // clock_gettime(CLOCK_REALTIME, &trt);
     // looptime = trt.tv_nsec;
     // printf("PERIODIC TIME --- %.4f, Jitter --- %+.4f, OVERRUN --- %d , Received message: '%s'\r\n", sampling_ms, jitter, overrun, msg->data.c_str());
-    printf("delay --- %.4f, Jitter --- %+.4f, OVERRUN --- %d \r\n", delay, jitter, overrun);
+    printf(" num_loop_err--- %d, \r\n", num_loop_err);
     // printf("loop time = %f\r\n", duration);
+    loop_old = (double)received_cnt;
 
   }
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr helloworld_subscriber_;
@@ -111,6 +118,8 @@ private:
   struct itimerspec timer_conf; //
   struct timespec expected; //
   int err;
+  int num_loop_err;
+  double loop_old;
   
   uint32_t overrun = 0;
   uint64_t ticks;

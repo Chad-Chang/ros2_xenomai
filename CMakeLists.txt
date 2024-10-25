@@ -31,6 +31,7 @@ find_package(std_msgs REQUIRED)
 
 
 
+
 INCLUDE_DIRECTORIES(/usr/xenomai/include /usr/xenomai/include/cobalt /usr/xenomai/include/rtdm 
 										/usr/xenomai/include/xenomai /{Project folder})
 										LINK_DIRECTORIES(/usr/xenomai/lib /usr/xenomai/lib/xenomai)
@@ -46,7 +47,7 @@ target_link_libraries(xeno_node2 pthread)
 
 
 add_executable(xeno_node_rcl src2/pub_rcl.cpp)
-ament_target_dependencies(xeno_node_rcl rclcpp std_msgs)
+ament_target_dependencies(xeno_node_rcl rclcpp std_msgs )
 target_link_libraries(xeno_node_rcl pthread)
 
 add_executable(xeno_node_rcl2 src2/subs_rcl.cpp)

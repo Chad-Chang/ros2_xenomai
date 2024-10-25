@@ -103,7 +103,7 @@ void *realtime_thread(void *arg)
     uint32_t overrun = 0;
     while(!sigMainKill)
     {
-      err = read(tfd, &ticks,sizeof(ticks));  // 이게 RT를 유지해주는 놈임.
+      
       // clock_gettime(CLOCK_REALTIME, &trt); //get the system time
       clock_gettime(CLOCK_MONOTONIC, &trt); //get the system time
       
@@ -114,9 +114,11 @@ void *realtime_thread(void *arg)
       double jitter = sampling_ms - 1.000; 
 
       // if(ticks>1) overrun += ticks - 1; 
-      if(jitter >1) overrun +=1;
+      if(jitter >1 && old_t1!=0) overrun +=1;
 
-      (*node_ptr2)->publish_helloworld_msg((double)trt.tv_sec+t1/1e9);
+      // (*node_ptr2)->publish_helloworld_msg((double)trt.tv_sec+t1/1e9);
+      (*node_ptr2)->publish_helloworld_msg(cnt);
+      
       cnt +=0.001;
       
       
@@ -128,6 +130,7 @@ void *realtime_thread(void *arg)
       {
           pthread_mutex_unlock(&data_mut);
       }
+      err = read(tfd, &ticks,sizeof(ticks));  // 이게 RT를 유지해주는 놈임.
     }
     pthread_exit(NULL); //while loop 종료 -> thread 종료
     return NULL;

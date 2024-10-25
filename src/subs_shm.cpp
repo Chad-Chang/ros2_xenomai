@@ -16,6 +16,7 @@
 #include <iostream>
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/string.hpp"
+#define NUMOFMOTOR 12
 
 using std::placeholders::_1;
 using namespace std::chrono_literals;
@@ -34,13 +35,11 @@ double cnt = 0 ;
 static void cleanup(void);
 
 typedef struct {
-    int motor_num;
+    int motor_num[NUMOFMOTOR];
     float time_stamp;
-    float motor_pos;
-    float load_pos;
-    float motor_vel;
-    float load_vel;
-    // char name[20];
+    double motor_pos[NUMOFMOTOR];
+    double motor_vel[NUMOFMOTOR];
+    double ctrl_input[NUMOFMOTOR];
 } SharedData;
 
 SharedData *data; 
@@ -75,7 +74,7 @@ long ts = 0;
 long old_t1= 0;
 long delta_t1= 0;
 double sampling_ms= 0;
-
+double pos_old = 0;
 void *realtime_thread(void *arg)
 {
 
@@ -102,25 +101,28 @@ void *realtime_thread(void *arg)
   //timer 설정 : read함수의 return 주기 : sampling time
   int err = timerfd_settime(tfd, TFD_TIMER_ABSTIME, &timer_conf, NULL); 
   if(err) error(1, errno, "timerfd_setting()");
-
+  int num_loop_err=0;
   while(!sigMainKill)
-  {    
+  {  
     clock_gettime(CLOCK_MONOTONIC, &trt);
-    
-    cnt += 0.001;
+    cnt += RT_PERIOD_MS*0.001;
     old_t1 = t1;
     t1 = trt.tv_nsec;
     ts = trt.tv_sec;
     delta_t1 = t1 - old_t1;
     sampling_ms = (double)delta_t1*0.000001;
-    double jitter = sampling_ms - 1.000; 
+    double jitter = sampling_ms - RT_PERIOD_MS; 
 
-    if(ticks>1) overrun += ticks - 1;
+    // if(ticks>1) overrun += ticks - 1;
+  if(jitter >1 && old_t1!=0) overrun +=1;
 
     double curr_time=(double) trt.tv_sec + (trt.tv_nsec/1e6);
-    printf("read shared memory: delay = %+.4f, jitter = %+.4f, OVERRUN = %d \n",
-           curr_time-data->time_stamp ,jitter, overrun);
 
+    if(trunc(1000*(data->motor_pos[0]-pos_old)) > 1 && pos_old !=0) num_loop_err++;
+
+    printf("read shared memory: delay = %+.4f, jitter = %+.4f, OVERRUN = %d , motorPos = %f, loop_err = %d\n" ,
+           curr_time-data->time_stamp ,jitter, overrun, data->motor_pos[0], num_loop_err);
+    pos_old = data->motor_pos[0];
     // printf("PERIODIC TIME --- %.4f, Jitter --- %+.4f, OVERRUN --- %d \r\n", sampling_ms, jitter, overrun);
   if(!pthread_mutex_trylock(&data_mut))
     {
@@ -188,7 +190,7 @@ int main(int argc, char * argv[])
   if(ret) error(1, ret, "pthread_create(realtime_thread)");
   
   pthread_attr_destroy(&rtattr);
-  while(data->motor_pos < 10.001);
+  while(data->motor_pos[0] < 10.0001);
   printf("rt ending");
 
   sigMainKill =1 ;
