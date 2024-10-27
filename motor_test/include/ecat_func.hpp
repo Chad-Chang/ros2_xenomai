@@ -24,16 +24,14 @@
 #include <sys/mman.h>
 #include <rtdm/ipc.h>
 #include <inttypes.h>
-
-
-#include "ethercat.h"
+#include <ethercat.h>
 
 // Board type
 #define SLAVE_GTWI
 //#define SLAVE_PTWI
 
 // Number of slaves
-#define NUMOFSLAVES	1
+#define NUMOFSLAVES	2
 
 // Define slaves number
 #define TWITTER_left    1
@@ -111,7 +109,7 @@ extern uint16 TXPDO_ADDR_PTWI[2];
 
 extern char    IOmap[4096];
 
-int ecat_init(char *ifname);
+int ecat_init(const char *ifname);
 int ecat_PDO_Config(uint16 slave);
 
 uint16 DS402_controlword(int controlCmd, uint16 tmp_controlword);

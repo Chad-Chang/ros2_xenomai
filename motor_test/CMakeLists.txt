@@ -59,7 +59,10 @@ set(PROJECT_SOURCES
   src/ecat_func.cpp 
   #src/s826DAQ.cpp
   # src/serial_linux.cpp
+  src/controller.cpp
   src/plant_shm.cpp
+  src/trajectory.cpp
+  
   )
 include_directories(include)
 
@@ -99,3 +102,10 @@ if(BUILD_TESTING)
 endif()
 
 ament_package()
+
+# set(CMAKE_INSTALL_RPATH "$ORIGIN/../lib")
+
+# add_custom_command(TARGET pub_shm POST_BUILD
+#     COMMAND sudo setcap cap_net_raw+ep $<TARGET_FILE:pub_shm>
+#     COMMENT "Setting cap_net_raw+ep for pub_shm"
+# )

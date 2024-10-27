@@ -11,9 +11,9 @@
 boolean needlf;
 boolean inOP;
 uint8 currentgroup = 0;
-int ecat_init(char *ifname)     //etherCATinitialization with the NIC ifname (ex-enp0)
+int ecat_init(const char *ifname)     //etherCATinitialization with the NIC ifname (ex-enp0)
 {
-    int i, oloop, iloop, k, wkc_count;
+    // int i, oloop, iloop, k, wkc_count;
     needlf = FALSE;
 
     printf("Initializing EtherCAT Master...\n");
