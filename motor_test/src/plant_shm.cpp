@@ -24,6 +24,9 @@
 #include <string>
 #include <utility>
 
+#include <fstream>
+#include <vector>
+
 #include "ecat_func.hpp"
 #include "controller.hpp"
 #include "trajectory.hpp"
@@ -44,6 +47,7 @@ using MclActuator = motor_commu::msg::MclActuator;
 pthread_t rt;  
 pthread_mutex_t data_mut = PTHREAD_MUTEX_INITIALIZER;
 
+std::ofstream log_file("/home/mcl/robot_ws_chad/src/motor_test/logging/logging_data.csv");
 
 
 uint16 RXPDO_ADDR_GTWI[3] = {2, 0x1600, 0x1605};  
@@ -62,8 +66,7 @@ typedef struct {
 #define SHM_SIZE sizeof(SharedData)
 
 /*공유 메모리 변수*/
-SharedData sim_data;
-
+SharedData *sim_data;
 
 
 int sigMainKill = 0;
@@ -94,6 +97,8 @@ double CL[NUMOFSLAVES];
 bool _f_ECAT_PDO_Success = false;
 
 
+
+
 Plant::Plant() : Node("plant")
 {
     auto qos_profile = rclcpp::QoS(rclcpp::KeepLast(1)).reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
@@ -121,6 +126,21 @@ void Plant::publish_motor_msg(double curr_time)
     // RCLCPP_INFO(this->get_logger(), "Published argument_a %.2f", msg.motor_pos[0]);
     // RCLCPP_INFO(this->get_logger(), "Published argument_b %.2f", msg.ctrl_input[0]);
 
+}
+
+// 공유 메모리의 데이터를 초기화하는 함수
+void initialize_shared_data(SharedData *data) {
+    // 모든 내용을 0으로 초기화
+    memset(data, 0, sizeof(SharedData));
+
+    // 또는 초기화 값 지정
+    for (int i = 0; i < NUMOFMOTOR; i++) {
+        data->motor_num[i] = i;           // 모터 번호 초기화
+        data->motor_pos[i] = 0.0;         // 모터 위치 초기화
+        data->motor_vel[i] = 0.0;         // 모터 속도 초기화
+        data->ctrl_input[i] = 0.0;        // 제어 입력 초기화
+    }
+    data->time_stamp = 0.0;               // 타임스탬프 초기화
 }
 
 
@@ -182,6 +202,7 @@ void *realtime_thread(void *arg)
     double      target_m_pos[NUMOFSLAVES];             std::fill_n(target_m_pos,NUMOFSLAVES,0.0);
     double      target_sim_pos[NUMOFSLAVES];             std::fill_n(target_sim_pos,NUMOFSLAVES,0.0);
     
+    double amplitude = 0.5;
     std::fill_n(modeOP,NUMOFSLAVES,DS402_MODE_OP_TORQUE_PROFILED);
     
 
@@ -300,8 +321,8 @@ void *realtime_thread(void *arg)
         sampling_ms = (double)delta_t1 * 0.000001;
         double jitter = sampling_ms - 1.000; 
 
-        // if(ticks>1) overrun += ticks - 1; 
-        if(jitter >1) overrun +=1; // 차이가 1ms이상
+        if(ticks>1) overrun += ticks - 1; 
+        // if(jitter >1) overrun +=1; // 차이가 1ms이상
 
         /// B-2. EtherCAT
         ec_send_processdata();
@@ -315,85 +336,100 @@ void *realtime_thread(void *arg)
         else
             _f_ECAT_PDO_Success = true;
 
-        for (int i = 0 ; i < NUMOFSLAVES ; i++) //Copy the data from received PDO
-        {
-            /*실제 데이터*/
-            position_raw[i]     = in_twitter[i]->TXPDO_ACTUAL_POSITION_DATA;
-            velocity_raw[i]     = in_twitter[i]->TXPDO_ACTUAL_VELOCITY_DATA;
-            torque_raw[i]       = in_twitter[i]->TXPDO_ACTUAL_TORQUE_DATA;
-            //Ain1_raw[i]         = in_twitter[i]->TXPDO_ANALOG_INPUT_1_DATA;
-            //DCvolt_raw[i]       = in_twitter[i]->TXPDO_DC_LINK_CIRCUIT_VOLTAGE_DATA;
-            Din_raw[i]          = in_twitter[i]->TXPDO_DIGITAL_INPUTS_DATA;
-            statusword[i]       = in_twitter[i]->TXPDO_STATUSWORD_DATA;
-            modeofOP_disp[i]    = in_twitter[i]->TXPDO_MODE_OF_OPERATION_DISPLAY_DATA;
-            spring_pos_raw[i]   = in_twitter[i]->TXPDO_AUXILIARY_POSITION_ACTUAL_VALUE_DATA;
+        real_C.j_set_gain(500, 0 ,  10, 50, Ts_r); sim_C.j_set_gain(1000,0,10,100, Ts_sim);
+        
+        // offset 만들기
+            for (int i = 0 ; i < NUMOFSLAVES ; i++) //Copy the data from received PDO
+            {
+                /*실제 데이터*/
+                position_raw[i]     = in_twitter[i]->TXPDO_ACTUAL_POSITION_DATA;
+                velocity_raw[i]     = in_twitter[i]->TXPDO_ACTUAL_VELOCITY_DATA;
+                torque_raw[i]       = in_twitter[i]->TXPDO_ACTUAL_TORQUE_DATA;
+                //Ain1_raw[i]         = in_twitter[i]->TXPDO_ANALOG_INPUT_1_DATA;
+                //DCvolt_raw[i]       = in_twitter[i]->TXPDO_DC_LINK_CIRCUIT_VOLTAGE_DATA;
+                Din_raw[i]          = in_twitter[i]->TXPDO_DIGITAL_INPUTS_DATA;
+                statusword[i]       = in_twitter[i]->TXPDO_STATUSWORD_DATA;
+                modeofOP_disp[i]    = in_twitter[i]->TXPDO_MODE_OF_OPERATION_DISPLAY_DATA;
+                spring_pos_raw[i]   = in_twitter[i]->TXPDO_AUXILIARY_POSITION_ACTUAL_VALUE_DATA;
 
-            motor_pos_raw[i]    = ((double)position_raw[i])/20000.0*2.0*PI;
-            motor_vel_raw[i] = ((double)velocity_raw[i])/20000.0*2.0*PI;
-            motor_torque_raw[i] = ((double)torque_raw[i])/1000.0*CL[i];
-            spring_torque_raw[i]   = ((double)spring_pos_raw[i])/524288.0*2.0*PI*1900;
-            spring_torque_raw[i] = -spring_torque_raw[i];
+                motor_pos_raw[i]    = ((double)position_raw[i])/20000.0*2.0*PI;
+                motor_vel_raw[i] = ((double)velocity_raw[i])/20000.0*2.0*PI;
+                motor_torque_raw[i] = ((double)torque_raw[i])/1000.0*CL[i];
+                spring_torque_raw[i]   = ((double)spring_pos_raw[i])/524288.0*2.0*PI*1900;
+                spring_torque_raw[i] = -spring_torque_raw[i];
 
-            /*실제 로봇 */
-            motor_pos[i] = motor_pos_raw[i]/gearRatio;
+                /*실제 로봇 */
+                motor_pos[i] = motor_pos_raw[i]/gearRatio;
 
-            /*시뮬레이션 데이터*/
-            motor_sim_pos[i] = sim_data.motor_pos[0];
-            motor_sim_vel[i] = sim_data.motor_vel[0];
-        }
-        
-        
-        
-        real_C.j_set_gain(5,0,0.2,5, Ts_r); sim_C.j_set_gain(5,0,0.2,5, Ts_sim);
-        
-        
-        
+                /*시뮬레이션 데이터*/
+                motor_sim_pos[0] = sim_data->motor_pos[0];
+                motor_sim_vel[0] = sim_data->motor_vel[0];
+            }
+            
+
         if(0<cnt &&cnt<1)
         {
             std::fill_n(controlword,NUMOFSLAVES,DS402_controlword(DS402_CTR_CMD_FAULT_RESET, tmp_ctrCmd));
-            cout << "fault reset"<<endl;
+            // cout << "fault reset"<<endl;
         }
 
         else if(0<cnt &&cnt<1)
         {
-            cout << "shut down"<<endl;
+            // cout << "shut down"<<endl;
             std::fill_n(controlword,NUMOFSLAVES,DS402_controlword(DS402_CTR_CMD_SHUTDOWN, tmp_ctrCmd));
         }
         else if(1<cnt &&cnt <2) 
         {
             std::fill_n(controlword,NUMOFSLAVES,DS402_controlword(DS402_CTR_CMD_DISABLE_OPERATION, tmp_ctrCmd));
-            cout << "disable operation"<<endl;
+            // cout << "disable operation"<<endl;
         }
         else if(2<cnt &&cnt <5) 
         {
             
             std::fill_n(controlword,NUMOFSLAVES,DS402_controlword(DS402_CTR_CMD_SWITCH_ON_AND_ENABLE, tmp_ctrCmd));
-            cout <<"enable" <<endl;
+            // cout <<"enable" <<endl;
         }
 
         else 
         {
             std::fill_n(controlword,NUMOFSLAVES,DS402_controlword(DS402_CTR_CMD_ENABLE_OPERATION, tmp_ctrCmd));
-            // offset 만들기
-            
-            
+            // if(cnt > 6){
+                /* PID컨트롤러 짜기 */
+                
+                
+                target_m_pos[0] = real_traj.sin_j_traj(motor_pos[0],amplitude,sin_freq[0]);
 
-            /* PID컨트롤러 짜기 */
-            for(int i = 0 ; i<NUMOFSLAVES; i++)
-            {
-                target_m_pos[i] = real_traj.sin_j_traj(motor_pos[i],1,sin_freq[0]);
-                ctrl_input[i] = real_C.j_posPID(target_m_pos[i],motor_pos[i]);
-                ctrl_current[i]  = ctrl_input[i]/(torqueConst*gearRatio);
+                ctrl_input[0] = real_C.j_posPID(target_m_pos[0],motor_pos[0]);
+                ctrl_current[0]  = ctrl_input[0]/(torqueConst*gearRatio);
+            
+                target_sim_pos[0] = sim_traj.sin_j_traj(motor_sim_pos[0],amplitude,sin_freq[1]);
+                // target_sim_pos[0] = pi;
+                // std::cout << "target_sim_pos = "<< target_sim_pos[0]<< " motor sim pos0 = "<< motor_sim_pos[0] << " err = " <<target_sim_pos[0]- motor_sim_pos[0]<<std::endl;
+                
 
-                target_sim_pos[i] = sim_traj.sin_j_traj(motor_sim_pos[i],1,sin_freq[1]);
-                ctrl_sim_input[i] = sim_C.j_posPID(target_sim_pos[i],motor_sim_pos[i]);
-            }
-            if(ctrl_current[0]>10) ctrl_current[0] = 10 ;
-            else if(ctrl_current[0]<-10) ctrl_current[0] = -10 ;
-            cout <<"error = " << target_m_pos[0]- motor_pos[0]<< " target = "<< target_m_pos[0]<< " "<< "control input = " << " "<<ctrl_current[0]<<endl;
+                ctrl_sim_input[0] = sim_C.j_posPID(target_sim_pos[0],motor_sim_pos[0]);
+            if(cnt > 6){
+                /* PID컨트롤러 짜기 */
+                if (log_file.is_open()) {
+                    log_file << cnt << ","  // Log current timestamp
+                    << 0 << ","                                // Log motor index
+                    << target_m_pos[0] << ","                  // Log target_m_pos
+                    << target_sim_pos[0] << ","                // Log target_sim_pos
+                    << motor_pos[0] << ","                     // Log motor_pos
+                    << motor_sim_pos[0] << "\n";               // Log motor_sim_pos
+                }
+                }
+                
+                if(ctrl_current[0]>20) ctrl_current[0] = 20 ;
+                else if(ctrl_current[0]<-20) ctrl_current[0] = -20 ;
+                // cout <<"error = " << target_m_pos[0]- motor_pos[0]<< " target = "<< target_m_pos[0]<< " "<< "control input = " << " "<<ctrl_current[0]<<endl;
+                sim_data->time_stamp = (double) trt.tv_sec + (trt.tv_nsec/1e6);
+                sim_data->motor_num[0] = 0;
+                sim_data->ctrl_input[0] = ctrl_sim_input[0];
+            // }
+            
         }
         
-
 
         //outputs for ECAT
         for (int i = 0 ; i < NUMOFSLAVES ; i++) //Copy the data from received PDO
@@ -409,32 +445,24 @@ void *realtime_thread(void *arg)
             out_twitter[i]->RXPDO_CONTROLWORD_DATA_0       = controlword[i];
             out_twitter[i]->RXPDO_MODE_OF_OPERATION_DATA   = modeOP[i];
 
-            sim_data.time_stamp = (double) trt.tv_sec + (trt.tv_nsec/1e6);
-            sim_data.motor_num[i] = i;
-            // sim_data.motor_pos[i] = motor_pos_raw[i];
-            // sim_data.motor_vel[i] = motor_pos_raw[i];
-            sim_data.ctrl_input[i] = ctrl_sim_input[i];
+            
 
         }
-
-       
-
 
         /*통신으로 설정할 때*/
         // (*node_ptr2)->publish_helloworld_msg();
 
-
-        cnt +=RT_PERIOD_MS*0.001;
-
+        cnt += RT_PERIOD_MS*0.001;
 
 
-        memcpy(shm_ptr, &sim_data, sizeof(SharedData));
+
+        memcpy(shm_ptr, sim_data, sizeof(SharedData));
 
         /*shared memory 전달한 값 확인 */
         // printf("written to shared memory: motor_num=%d, motor_pos=%.4f, time_stamp = %.4f\n",
         //       sim_data.motor_num[0], sim_data.motor_pos[0], sim_data.time_stamp);
         /* 루프타임 확인 */
-        // printf("PERIODIC TIME --- %.4f, Jitter --- %+.4f, OVERRUN --- %d \r\n", sampling_ms, jitter, overrun);
+        printf("PERIODIC TIME --- %.4f, Jitter --- %+.4f, OVERRUN --- %d \r\n", sampling_ms, jitter, overrun);
 
         if(!pthread_mutex_trylock(&data_mut))
         {
@@ -446,14 +474,32 @@ void *realtime_thread(void *arg)
 
     // 매핑 해제 및 공유 메모리 닫기
     munmap(shm_ptr, SHM_SIZE);
-    close(shm_fd);
-
+    // close(shm_fd);
+    if (close(shm_fd) == -1) {
+        perror("close");
+    }
+    // 공유 메모리 객체 삭제
+    if (shm_unlink(SHM_NAME) == -1) {
+        perror("shm_unlink");
+    } else {
+        std::cout << "Shared memory " << SHM_NAME << " successfully unlinked." << std::endl;
+    }
     pthread_exit(NULL); //while loop 종료 -> thread 종료
     return NULL;
 }
 
 int main(int argc, char *argv[])
 {
+    
+    
+    if (log_file.is_open()) {
+        // Write the header once
+        log_file << "Time,Motor Index,Target M Pos,Target Sim Pos,Motor Pos,Motor Sim Pos\n";
+    } else {
+        std::cerr << "Unable to open log file" << std::endl;
+    }
+
+
     mlockall(MCL_CURRENT|MCL_FUTURE); 
     // 공유 메모리 생성 및 열기
     shm_fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0666);
@@ -475,8 +521,12 @@ int main(int argc, char *argv[])
         // SharedData data;
         exit(EXIT_FAILURE);
     }   
+    sim_data = (SharedData *)shm_ptr;
 
-    // (void) argc; (void) argv;
+    sim_data->ctrl_input[0] = 0;
+    // initialize_shared_data(sim_data);
+
+    
     rclcpp::init(argc, argv);
     
     /*xenomai RT thread 만들기*/

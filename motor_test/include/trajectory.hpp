@@ -12,6 +12,8 @@ private:
     double Ts_ = 0.001;
     double traj_t_cos_= 0;
     double traj_t_sin_= 0;
+    double initial_pos = 0;
+    bool is_init=1;
     /* data */
 public:
     Trajectory();
