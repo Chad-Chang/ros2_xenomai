@@ -25,6 +25,7 @@
 #include <mutex>
 #include <ratio>
 #include <thread>
+
 #include "MCLmodel.hpp"
 #include <mujoco/mujoco.h>
 
@@ -33,8 +34,11 @@
 #include "motor_commu/msg/mcl_actuator.hpp"
 
 
+
 using std::placeholders::_1;
 using namespace std::chrono_literals;
+
+
 
 class MuJoCoMessageHandler: public rclcpp::Node
 {
@@ -47,15 +51,17 @@ private:
     // std::shared_ptr<rclcpp::ParameterEventHandler> param_subscriber_;
     // std::shared_ptr<rclcpp::ParameterCallbackHandle> cb_handle_;
     std::shared_ptr<MCL::MCLmodel_> mcl_model_;
-    
-    
+    rclcpp::TimerBase::SharedPtr timer_;
+    // SharedData *sim_data_;
 
     
 
 public:
   void actuator_cmd_callback(
     const motor_commu::msg::MclActuator::SharedPtr msg) const; // 보증을 의미함.
+  void actuator_cmd_callback_shm(SharedData *sim_data, mjData* d); // 보증을 의미함.
   void joint_callback();
+  void joint_callback_shm(SharedData *sim_data, mjData* d);
   MuJoCoMessageHandler(MCL::MCLmodel_ *mcl_model);
   ~MuJoCoMessageHandler();
 };

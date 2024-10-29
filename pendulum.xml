@@ -1,6 +1,6 @@
 <mujoco>
-	<!-- <option timestep="0.0001" integrator="RK4" gravity = "0 0 -1"> -->
-	<option timestep="0.001" integrator="RK4">
+	<option timestep="0.001" integrator="RK4" gravity = "0 0 0">
+	<!-- <option timestep="0.001" integrator="RK4"> -->
 		<!-- <flag sensornoise="enable" energy="enable" contact="disable"/> -->
 		<flag  energy="enable" contact="disable"/>
 	</option>
