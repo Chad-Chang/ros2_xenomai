@@ -17,9 +17,12 @@
  #include <functional>
  #include <memory>
  #include <string>
-
+#include <vector>
  #include "rclcpp/rclcpp.hpp"
  #include "std_msgs/msg/string.hpp"
+ #include "motor_commu/msg/mcl_actuator.hpp"
+
+#define  NUMOFMOTOR 12
  using namespace std::chrono_literals;
 
  // cpu 코어당 상용량 확인 : top , 1
@@ -31,25 +34,43 @@
    HelloworldPublisher()
    : Node("helloworld_publisher"), count_(0)
    {
-     auto qos_profile = rclcpp::QoS(rclcpp::KeepLast(1)).reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
+     auto qos_profile = rclcpp::QoS(rclcpp::KeepLast(10)).reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
     //  auto qos_profile = rclcpp::QoS(rclcpp::KeepLast(1), rmw_qos_profile_sensor_data);//.reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
-     helloworld_publisher_ = this->create_publisher<std_msgs::msg::String>(
+     helloworld_publisher_ = this->create_publisher<motor_commu::msg::MclActuator>(
        "helloworld", qos_profile);
     //  timer_ = this->create_wall_timer(
     //    1s, std::bind(&HelloworldPublisher::publish_helloworld_msg, this));
    }
   void publish_helloworld_msg(double curr_time)
   {
-    auto msg = std_msgs::msg::String();
+    // auto msg = std_msgs::msg::String();
+    motor_commu::msg::MclActuator msg;
     // msg.data = std::to_string(count_++);
-    msg.data = std::to_string(curr_time);
+      // (void) curr_time;
+    
+    for(int i = 0 ; i<NUMOFMOTOR ; i++)
+    {
+      msg.time_stamp = curr_time;
+      msg.motor_num[i] = cnt;
+      msg.motor_pos[i] =cnt;
+      msg.motor_vel[i] =cnt;
+      msg.ctrl_input[i] =cnt;
+      // RCLCPP_INFO(this->get_logger(), "Published message: '%d' , '%f' ,'%f' ,'%f'",msg.motor_num[i], msg.motor_pos[i],msg.motor_vel[i],msg.ctrl_input[i]);
+    }
+    //   // 인덱스를 통해 각 필드에 값 할당
+    //   // msg.motor_num[i] = "Motor" + std::to_string(i + 1);
+      // msg.motor_pos[0] = cnt;
+    //   // msg.motor_vel[i] = cnt;
+    //   // msg.ctrl_input[i] = cnt;
+    // }
+    
     helloworld_publisher_->publish(msg);
-    // RCLCPP_INFO(this->get_logger(), "Published message: '%s' and real count = %f", msg.data.c_str(),cnt);
+    // RCLCPP_INFO(this->get_logger(), "real count = %f",cnt);
   }
  private:
    
    rclcpp::TimerBase::SharedPtr timer_;
-   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr helloworld_publisher_;
+   rclcpp::Publisher<motor_commu::msg::MclActuator>::SharedPtr helloworld_publisher_;
    size_t count_;
  };
 
@@ -113,24 +134,26 @@ void *realtime_thread(void *arg)
       sampling_ms = (double)delta_t1*0.000001;
       double jitter = sampling_ms - 1.000; 
 
-      // if(ticks>1) overrun += ticks - 1; 
-      if(jitter >1 && old_t1!=0) overrun +=1;
+      if(ticks>1) overrun += ticks - 1; 
+      // if(sampling_ms >1.2||sampling_ms <-1.2 && old_t1!=0) overrun +=1;
 
-      // (*node_ptr2)->publish_helloworld_msg((double)trt.tv_sec+t1/1e9);
-      (*node_ptr2)->publish_helloworld_msg(cnt);
+      (*node_ptr2)->publish_helloworld_msg((double)trt.tv_sec+t1/1e6);
+      // (*node_ptr2)->publish_helloworld_msg(cnt);
       
       cnt +=0.001;
       
       
-      if(err<0) error(1,errno, "read()");
+      // printf("PERIODIC TIME --- %.4f, Jitter --- %+.4f, OVERRUN --- %d \r\n", sampling_ms, jitter, overrun);
+      
 
-      printf("PERIODIC TIME --- %.4f, Jitter --- %+.4f, OVERRUN --- %d \r\n", sampling_ms, jitter, overrun);
+      
       
       if(!pthread_mutex_trylock(&data_mut))
       {
           pthread_mutex_unlock(&data_mut);
       }
       err = read(tfd, &ticks,sizeof(ticks));  // 이게 RT를 유지해주는 놈임.
+      if(err<0) error(1,errno, "read()");
     }
     pthread_exit(NULL); //while loop 종료 -> thread 종료
     return NULL;
@@ -143,7 +166,7 @@ int main(int argc, char *argv[])
     
     // (void) argc; (void) argv;
     rclcpp::init(argc, argv);
-    // mlockall(MCL_CURRENT|MCL_FUTURE);
+    mlockall(MCL_CURRENT|MCL_FUTURE);
     pthread_attr_t rtattr;
     sigset_t set;
     cpu_set_t cpus;

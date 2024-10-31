@@ -15,8 +15,13 @@
  #include <rtdm/ipc.h> //
  #include <iostream>
 
+ #include <fstream>
+#include <vector>
+
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/string.hpp"
+#include "motor_commu/msg/mcl_actuator.hpp"
+
 using std::placeholders::_1;
 using namespace std::chrono_literals;
 
@@ -26,12 +31,14 @@ using namespace std::chrono_literals;
 pthread_t rt;
 pthread_mutex_t data_mut = PTHREAD_MUTEX_INITIALIZER; // main thread와 데이터 겹치지 않게 만들어주기-> stack영역의 데이터 변경 불가
 
+// std::ofstream log_file("/home/mcl/robot_ws_chad/src/ros2_xeno/logging/logging_data.csv");
 
- // cpu 코어당 상용량 확인 : top , 1
- double cnt = 0 ;
- 
- int sigMainKill = 0;
- static void cleanup(void);
+// cpu 코어당 상용량 확인 : top , 1
+double cnt = 0 ;
+
+int sigMainKill = 0;
+static void cleanup(void);
+double motor_pos = 0;
 
 class HelloworldSubscriber : public rclcpp::Node
 {
@@ -39,10 +46,10 @@ public:
   HelloworldSubscriber()
   : Node("Helloworld_subscriber")
   {
-    auto qos_profile = rclcpp::QoS(rclcpp::KeepLast(1)).reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
+    auto qos_profile = rclcpp::QoS(rclcpp::KeepLast(10)).reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
     // auto qos_profile = rclcpp::QoS(rclcpp::KeepLast(1)).deadline(rclcpp::Duration(100ms));
     
-    helloworld_subscriber_ = this->create_subscription<std_msgs::msg::String>(
+    helloworld_subscriber_ = this->create_subscription<motor_commu::msg::MclActuator>(
       "helloworld",
       qos_profile,
       std::bind(&HelloworldSubscriber::subscribe_topic_message, this, _1));
@@ -72,7 +79,7 @@ public:
 
 private:
   
-  void subscribe_topic_message(const std_msgs::msg::String::SharedPtr msg) //const
+  void subscribe_topic_message(const motor_commu::msg::MclActuator::SharedPtr msg) //const
   {
     // (void) msg;
     clock_gettime(CLOCK_MONOTONIC, &trt);
@@ -89,11 +96,11 @@ private:
     
     // RCLCPP_INFO(this->get_logger(), "Received message: '%s' , cnt = '%f'", msg->data.c_str(), cnt);
     cnt += 0.001;
-    // double received_time = std::stod(msg->data); s
-    double received_cnt = std::stod(msg->data);
-
+    // double received_time = msg.motor_pos[0]; 
+    double received_cnt = msg->motor_pos[0];
+    motor_pos = msg->motor_pos[0];
     // t1에서 받은 시간을 빼서 delay를 계산
-    // double delay = ((double)trt.tv_sec+t1/1e9 - received_time);
+    double delay = ((double)trt.tv_sec+t1/1e6 - msg->time_stamp);
   
     if(loop_old != 0 &&  
       trunc(1000*((double)received_cnt -loop_old)) > 1) num_loop_err ++;
@@ -101,12 +108,14 @@ private:
     // clock_gettime(CLOCK_REALTIME, &trt);
     // looptime = trt.tv_nsec;
     // printf("PERIODIC TIME --- %.4f, Jitter --- %+.4f, OVERRUN --- %d , Received message: '%s'\r\n", sampling_ms, jitter, overrun, msg->data.c_str());
-    printf(" num_loop_err--- %d, \r\n", num_loop_err);
+
+    // printf(" loop_err--- %d, motor pos = %f, delay = %+f \r\n", num_loop_err, msg->motor_pos[0], delay);
+
     // printf("loop time = %f\r\n", duration);
     loop_old = (double)received_cnt;
 
   }
-  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr helloworld_subscriber_;
+  rclcpp::Subscription<motor_commu::msg::MclActuator>::SharedPtr helloworld_subscriber_;
   struct timespec trt; //
   long t1 ;
   // long looptime ;
@@ -142,6 +151,12 @@ void *realtime_thread(void *arg)
 
 int main(int argc, char * argv[])
 {
+  // if (log_file.is_open()) {
+  //       // Write the header once
+  //       log_file << "Time,Motor Index,Target M Pos,Target Sim Pos,Motor Pos,Motor Sim Pos,Jitter\n";
+  //   } else {
+  //       std::cerr << "Unable to open log file" << std::endl;
+  //   }
   rclcpp::init(argc, argv);
   
   pthread_attr_t rtattr;
@@ -172,7 +187,7 @@ int main(int argc, char * argv[])
     ret = pthread_create(&rt, &rtattr, realtime_thread, &node); //create RT thread
     if(ret) error(1, ret, "pthread_create(realtime_thread)");
     pthread_attr_destroy(&rtattr);
-    while(cnt<9);
+    while(motor_pos < 10);
 
     usleep(2000);
     cleanup();

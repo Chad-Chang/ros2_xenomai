@@ -43,6 +43,7 @@ typedef struct {
 } SharedData;
 
 SharedData *data; 
+
 class HelloworldSubscriber : public rclcpp::Node
 {
 public:
@@ -101,7 +102,10 @@ void *realtime_thread(void *arg)
   //timer 설정 : read함수의 return 주기 : sampling time
   int err = timerfd_settime(tfd, TFD_TIMER_ABSTIME, &timer_conf, NULL); 
   if(err) error(1, errno, "timerfd_setting()");
+  
   int num_loop_err=0;
+
+
   while(!sigMainKill)
   {  
     clock_gettime(CLOCK_MONOTONIC, &trt);
@@ -113,24 +117,39 @@ void *realtime_thread(void *arg)
     sampling_ms = (double)delta_t1*0.000001;
     double jitter = sampling_ms - RT_PERIOD_MS; 
 
-    // if(ticks>1) overrun += ticks - 1;
-  if(jitter >1 && old_t1!=0) overrun +=1;
+    if(ticks>1) overrun += ticks - 1;
+  // if(jitter >1 && old_t1!=0) overrun +=1;
 
     double curr_time=(double) trt.tv_sec + (trt.tv_nsec/1e6);
 
     if(trunc(1000*(data->motor_pos[0]-pos_old)) > 1 && pos_old !=0) num_loop_err++;
+     
+    pthread_mutex_lock(&data_mut);
+    // for(int i= 0 ;i <NUMOFMOTOR; i++)
+    // {
+    //   data->time_stamp = (double) trt.tv_sec + (trt.tv_nsec/1e6);
+    //   data->motor_num[i] = i;
+    //   data->motor_pos[i] = cnt;
+    //   data->motor_vel[i] = cnt;
+    //   data->ctrl_input[i] = cnt;
+    // }
+    printf("read shared memory: phase delay = %+.4f , loop_err = %d || RT test: PERIODIC TIME = %.4f, Jitter --- %+.4f, OVERRUN --- %d\n " ,
+          curr_time-data->time_stamp, num_loop_err, sampling_ms, jitter, overrun);
+    
+    pthread_mutex_unlock(&data_mut);
+    // printf("read shared memory: delay = %+.4f, jitter = %+.4f, OVERRUN = %d , motorPos = %f, loop_err = %d\n" ,
+    //        curr_time-data->time_stamp ,jitter, overrun, data->motor_pos[0], num_loop_err);
+    // pos_old = data->motor_pos[0];
 
-    printf("read shared memory: delay = %+.4f, jitter = %+.4f, OVERRUN = %d , motorPos = %f, loop_err = %d\n" ,
-           curr_time-data->time_stamp ,jitter, overrun, data->motor_pos[0], num_loop_err);
-    pos_old = data->motor_pos[0];
     // printf("PERIODIC TIME --- %.4f, Jitter --- %+.4f, OVERRUN --- %d \r\n", sampling_ms, jitter, overrun);
-  if(!pthread_mutex_trylock(&data_mut))
-    {
-        pthread_mutex_unlock(&data_mut);
-    }
+  // if(!pthread_mutex_trylock(&data_mut))
+  //   {
+  //       pthread_mutex_unlock(&data_mut);
+  //   }
     err = read(tfd, &ticks,sizeof(ticks)); // RT를 유지해주는 놈.
   }  // ret = pthread_create(&rt, &rtattr, realtime_thread, NULL); //create RT thread
-
+  munmap(shm_ptr, SHM_SIZE);
+  close(shm_fd);
   pthread_exit(NULL); //while loop 종료 -> thread 종료
 
   return NULL;
@@ -140,7 +159,7 @@ void *realtime_thread(void *arg)
 int main(int argc, char * argv[])
 {
   // (void) argc;  (void) argv; 
-  rclcpp::init(argc, argv);
+  
   mlockall(MCL_CURRENT|MCL_FUTURE); 
 
 /*공유 메모리 설정*/
@@ -158,6 +177,8 @@ int main(int argc, char * argv[])
   }
   data = (SharedData *)shm_ptr;
   // 공유 메모리에서 구조체 읽기
+
+  rclcpp::init(argc, argv);
   
   pthread_attr_t rtattr;
   sigset_t set;

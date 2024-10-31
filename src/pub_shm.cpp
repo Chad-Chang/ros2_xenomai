@@ -93,7 +93,7 @@ uint64_t ticks;
 uint32_t overrun = 0;
 
 /*공유 메모리 변수*/
-SharedData data;
+SharedData *data;
 
 // C 스타일의 함수로 전달할 함수를 정의
 void *realtime_thread(void *arg) // ros2의 통신을 사용할때는 argument를 instance를 가져와서 사용함.
@@ -141,9 +141,8 @@ void *realtime_thread(void *arg) // ros2의 통신을 사용할때는 argument�
     sampling_ms = (double)delta_t1 * 0.000001;
     double jitter = sampling_ms - 1.000; 
 
-    // if(ticks>1) overrun += ticks - 1; 
-    if(jitter >1) overrun +=1; // 차이가 1ms이상
-
+    if(ticks>1) overrun += ticks - 1; 
+    
     /*통신으로 설정할 때*/
     // (*node_ptr2)->publish_helloworld_msg();
 
@@ -151,18 +150,22 @@ void *realtime_thread(void *arg) // ros2의 통신을 사용할때는 argument�
     
     if(err<0) error(1,errno, "read()");
 
+    pthread_mutex_lock(&data_mut);
     for(int i= 0 ;i <NUMOFMOTOR; i++)
     {
-      data.time_stamp = (double) trt.tv_sec + (trt.tv_nsec/1e6);
-      data.motor_num[i] = i;
-      data.motor_pos[i] = cnt;
-      data.motor_vel[i] = cnt;
-      data.ctrl_input[i] = cnt;
+      data->time_stamp = (double) trt.tv_sec + (trt.tv_nsec/1e6);
+      data->motor_num[i] = i;
+      data->motor_pos[i] = cnt;
+      data->motor_vel[i] = cnt;
+      data->ctrl_input[i] = cnt;
     }
-    memcpy(shm_ptr, &data, sizeof(SharedData));
+    
 
+    // pos_old = data->motor_pos[0];
+    memcpy(shm_ptr, data, sizeof(SharedData));
+    pthread_mutex_unlock(&data_mut);
   /*shared memory 전달한 값 확인 */
-    // printf("Data written to shared memory: motor_num=%d, motor_pos=%.4f, time_stamp = %.4f\n",
+    // printf("Data written to shared memory: time_stamp = %.4f\n",
     //       data.motor_num, data.motor_pos, data.time_stamp);
   /* 루프타임 확인 */
     // printf("PERIODIC TIME --- %.4f, Jitter --- %+.4f, OVERRUN --- %d \r\n", sampling_ms, jitter, overrun);
@@ -206,7 +209,9 @@ int main(int argc, char *argv[])
         perror("mmap");
         // SharedData data;
         exit(EXIT_FAILURE);
-    }   
+    }  
+
+    data = (SharedData *)shm_ptr;
 
     // (void) argc; (void) argv;
     rclcpp::init(argc, argv);

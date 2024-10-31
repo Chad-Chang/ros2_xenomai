@@ -28,6 +28,7 @@ set(CMAKE_STATIC_LINKER_FLAGS "$/usr/xenomai/bin/xeno-config --posix --ldflags")
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(motor_commu REQUIRED)
 
 
 
@@ -47,11 +48,11 @@ target_link_libraries(xeno_node2 pthread)
 
 
 add_executable(xeno_node_rcl src2/pub_rcl.cpp)
-ament_target_dependencies(xeno_node_rcl rclcpp std_msgs )
+ament_target_dependencies(xeno_node_rcl rclcpp std_msgs motor_commu)
 target_link_libraries(xeno_node_rcl pthread)
 
 add_executable(xeno_node_rcl2 src2/subs_rcl.cpp)
-ament_target_dependencies(xeno_node_rcl2 rclcpp std_msgs)
+ament_target_dependencies(xeno_node_rcl2 rclcpp std_msgs motor_commu)
 target_link_libraries(xeno_node_rcl2 pthread)
 
 install(TARGETS
