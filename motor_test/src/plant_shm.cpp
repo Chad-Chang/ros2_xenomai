@@ -74,7 +74,7 @@ static void cleanup(void);
 
 /*loop time측정용임.*/
 long t1 = 0;
-long ts = 0;
+
 long old_t1= 0;
 long delta_t1= 0;
 double sampling_ms= 0;
@@ -309,17 +309,18 @@ void *realtime_thread(void *arg)
 
     double Ts_r = 0.001;
     double Ts_sim = 0.001;
-
+    double jitter = 0;
+    //  jitter = 0;
     while(!sigMainKill) // cnt가 어느정도 이상되면 main에서 sigMainkill을 true로 바꿔줌
     {
         clock_gettime(CLOCK_MONOTONIC, &trt); //get the system time
 
         old_t1 = t1;
         t1 = trt.tv_nsec;
-        ts = trt.tv_sec;
         delta_t1 = t1 - old_t1;
         sampling_ms = (double)delta_t1 * 0.000001;
-        double jitter = sampling_ms - 1.000; 
+        
+        jitter = sampling_ms - 1.000;
 
         if(ticks>1) overrun += ticks - 1; 
         // if(jitter >1) overrun +=1; // 차이가 1ms이상
@@ -336,7 +337,7 @@ void *realtime_thread(void *arg)
         else
             _f_ECAT_PDO_Success = true;
 
-        real_C.j_set_gain(500, 0 ,  10, 50, Ts_r); sim_C.j_set_gain(1000,0,10,100, Ts_sim);
+        real_C.j_set_gain(600, 0, 11, 50, Ts_r); sim_C.j_set_gain(1000,0,10,100, Ts_sim);
         
         // offset 만들기
             for (int i = 0 ; i < NUMOFSLAVES ; i++) //Copy the data from received PDO
@@ -397,18 +398,28 @@ void *realtime_thread(void *arg)
                 /* PID컨트롤러 짜기 */
                 
                 
-                target_m_pos[0] = real_traj.sin_j_traj(motor_pos[0],amplitude,sin_freq[0]);
+            target_m_pos[0] = real_traj.sin_j_traj(motor_pos[0],amplitude,sin_freq[0]);
 
-                ctrl_input[0] = real_C.j_posPID(target_m_pos[0],motor_pos[0]);
-                ctrl_current[0]  = ctrl_input[0]/(torqueConst*gearRatio);
+            ctrl_input[0] = real_C.j_posPID(target_m_pos[0],motor_pos[0]);
+            ctrl_current[0]  = ctrl_input[0]/(torqueConst*gearRatio);
+        
+            target_sim_pos[0] = sim_traj.sin_j_traj(motor_sim_pos[0],amplitude,sin_freq[1]);
+            // target_sim_pos[0] = pi;
+            // std::cout << "target_sim_pos = "<< target_sim_pos[0]<< " motor sim pos0 = "<< motor_sim_pos[0] << " err = " <<target_sim_pos[0]- motor_sim_pos[0]<<std::endl;
             
-                target_sim_pos[0] = sim_traj.sin_j_traj(motor_sim_pos[0],amplitude,sin_freq[1]);
-                // target_sim_pos[0] = pi;
-                // std::cout << "target_sim_pos = "<< target_sim_pos[0]<< " motor sim pos0 = "<< motor_sim_pos[0] << " err = " <<target_sim_pos[0]- motor_sim_pos[0]<<std::endl;
-                
 
-                ctrl_sim_input[0] = sim_C.j_posPID(target_sim_pos[0],motor_sim_pos[0]);
-            if(cnt > 6){
+            ctrl_sim_input[0] = sim_C.j_posPID(target_sim_pos[0],motor_sim_pos[0]);
+            
+            if(cnt > 6)
+            {
+                if(ctrl_current[0]>20) ctrl_current[0] = 20 ;
+                else if(ctrl_current[0]<-20) ctrl_current[0] = -20 ;
+                // cout <<"error = " << target_m_pos[0]- motor_pos[0]<< " target = "<< target_m_pos[0]<< " "<< "control input = " << " "<<ctrl_current[0]<<endl;
+                sim_data->time_stamp = (double) trt.tv_sec + (trt.tv_nsec/1e6);
+                sim_data->motor_num[0] = 0;
+                sim_data->ctrl_input[0] = ctrl_sim_input[0];
+
+
                 /* PID컨트롤러 짜기 */
                 if (log_file.is_open()) {
                     log_file << cnt << ","  // Log current timestamp
@@ -416,16 +427,12 @@ void *realtime_thread(void *arg)
                     << target_m_pos[0] << ","                  // Log target_m_pos
                     << target_sim_pos[0] << ","                // Log target_sim_pos
                     << motor_pos[0] << ","                     // Log motor_pos
-                    << motor_sim_pos[0] << "\n";               // Log motor_sim_pos
+                    << motor_sim_pos[0] << ","
+                    << jitter<<"\n";               // Log motor_sim_pos
                 }
-                }
+            }
                 
-                if(ctrl_current[0]>20) ctrl_current[0] = 20 ;
-                else if(ctrl_current[0]<-20) ctrl_current[0] = -20 ;
-                // cout <<"error = " << target_m_pos[0]- motor_pos[0]<< " target = "<< target_m_pos[0]<< " "<< "control input = " << " "<<ctrl_current[0]<<endl;
-                sim_data->time_stamp = (double) trt.tv_sec + (trt.tv_nsec/1e6);
-                sim_data->motor_num[0] = 0;
-                sim_data->ctrl_input[0] = ctrl_sim_input[0];
+                
             // }
             
         }
@@ -462,7 +469,7 @@ void *realtime_thread(void *arg)
         // printf("written to shared memory: motor_num=%d, motor_pos=%.4f, time_stamp = %.4f\n",
         //       sim_data.motor_num[0], sim_data.motor_pos[0], sim_data.time_stamp);
         /* 루프타임 확인 */
-        printf("PERIODIC TIME --- %.4f, Jitter --- %+.4f, OVERRUN --- %d \r\n", sampling_ms, jitter, overrun);
+        // printf("PERIODIC TIME --- %.4f, Jitter --- %+.4f, OVERRUN --- %d \r\n", sampling_ms, jitter, overrun);
 
         if(!pthread_mutex_trylock(&data_mut))
         {
@@ -475,15 +482,15 @@ void *realtime_thread(void *arg)
     // 매핑 해제 및 공유 메모리 닫기
     munmap(shm_ptr, SHM_SIZE);
     // close(shm_fd);
-    if (close(shm_fd) == -1) {
-        perror("close");
-    }
-    // 공유 메모리 객체 삭제
-    if (shm_unlink(SHM_NAME) == -1) {
-        perror("shm_unlink");
-    } else {
-        std::cout << "Shared memory " << SHM_NAME << " successfully unlinked." << std::endl;
-    }
+    // if (close(shm_fd) == -1) {
+    //     perror("close");
+    // }
+    // // 공유 메모리 객체 삭제
+    // if (shm_unlink(SHM_NAME) == -1) {
+    //     perror("shm_unlink");
+    // } else {
+    //     std::cout << "Shared memory " << SHM_NAME << " successfully unlinked." << std::endl;
+    // }
     pthread_exit(NULL); //while loop 종료 -> thread 종료
     return NULL;
 }
@@ -494,7 +501,7 @@ int main(int argc, char *argv[])
     
     if (log_file.is_open()) {
         // Write the header once
-        log_file << "Time,Motor Index,Target M Pos,Target Sim Pos,Motor Pos,Motor Sim Pos\n";
+        log_file << "Time,Motor Index,Target M Pos,Target Sim Pos,Motor Pos,Motor Sim Pos,Jitter\n";
     } else {
         std::cerr << "Unable to open log file" << std::endl;
     }
@@ -561,7 +568,7 @@ int main(int argc, char *argv[])
 
     pthread_attr_destroy(&rtattr);
 
-    while(cnt < 10);
+    while(cnt < 20);
     /*끝*/
     sigMainKill = 1;
     usleep(1000);
