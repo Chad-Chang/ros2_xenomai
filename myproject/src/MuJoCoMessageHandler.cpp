@@ -44,7 +44,9 @@ void MuJoCoMessageHandler::actuator_cmd_callback_shm(
 
     mcl_model_-> time_old = mcl_model_->time;
     mcl_model_-> time = sim_data -> time_stamp;
-    // RCLCPP_INFO(this->get_logger(), "subscribe actuator cmds control input = %f", d->ctrl[0]);
+    if( mcl_model_-> time - mcl_model_->time_old>0.0001)
+    {RCLCPP_INFO(this->get_logger(), "subscribe actuator cmds time_interval = %f", mcl_model_-> time - mcl_model_->time_old);}
+
 }
 
 void MuJoCoMessageHandler::joint_callback() 

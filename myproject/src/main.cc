@@ -153,9 +153,11 @@ struct timespec trt; // 실제 타이머
 struct itimerspec timer_conf; //
 struct timespec expected; //
 
+// double shm_time_old;
+
 void apply_ctrl(MuJoCoMessageHandler *msg_handler,timespec trt,int err) // 1khz로 돌아감.
 {
-    clock_gettime(CLOCK_MONOTONIC, &trt); //get the system time
+    // clock_gettime(CLOCK_MONOTONIC, &trt); //get the system time
 
     old_t1 = t1;
     t1 = trt.tv_nsec;
@@ -170,21 +172,18 @@ void apply_ctrl(MuJoCoMessageHandler *msg_handler,timespec trt,int err) // 1khz�
     msg_handler->joint_callback_shm(sim_data,d);
     
     
-    // memcpy(shm_ptr, sim_data, sizeof(SharedData));
-
     // msg_handler->joint_callback();
+
     mjtNum loop_time = d->time - previous_time;
     previous_time = d->time;
 
     // printf("looptime CPU = %.4f, simulation time = %.4f\n", sampling_ms, loop_time);
 
     msg_handler->actuator_cmd_callback_shm(sim_data,d);
-    
+    // shm_time_old = MCL_model->time;
     err = read(tfd, &ticks,sizeof(ticks));  //해당 타이머가 설정한 간격으로 발생한 타이머 틱수를 읽어옴.
         if(err<0) error(1,errno, "read()");
 
-    // std::cout <<"input = " << sim_data->ctrl_input[0] <<std::endl;
-    // d->ctrl[0] =
 }
 
 void PhysicsThread(GLFWwindow* window, MuJoCoMessageHandler *msg_handler) 
@@ -205,7 +204,7 @@ void PhysicsThread(GLFWwindow* window, MuJoCoMessageHandler *msg_handler)
         
 
     sim_data -> ctrl_input[0] = 0;
-    while( !glfwWindowShouldClose(window) && cnt <10)
+    while( !glfwWindowShouldClose(window) && cnt <20)
     // while(cnt <10)
     {
         // advance interactive simulation for 1/60 sec
@@ -215,6 +214,23 @@ void PhysicsThread(GLFWwindow* window, MuJoCoMessageHandler *msg_handler)
         mjtNum simstart = d->time;
         while( d->time - simstart < 1.0/60.0 )
         {
+
+            // clock_gettime(CLOCK_MONOTONIC, &trt); //get the system time
+
+            // old_t1 = t1;
+            // t1 = trt.tv_nsec;
+            // ts = trt.tv_sec;
+            // delta_t1 = t1 - old_t1;
+            // sampling_ms = (double)delta_t1 * 0.000001;
+            // double jitter = sampling_ms - 1.000; 
+
+            //         // msg_handler->joint_callback();
+            // mjtNum loop_time = d->time - previous_time;
+            // previous_time = d->time;
+
+            // printf("looptime CPU = %.4f, simulation time = %.4f, cnt = %f \n", sampling_ms, loop_time, cnt);
+
+
             // std::lock_guard<std::mutex> lock(mu);
             mj_step(m, d);
             apply_ctrl(msg_handler,trt,err);
@@ -237,7 +253,18 @@ void PhysicsThread(GLFWwindow* window, MuJoCoMessageHandler *msg_handler)
         // process pending GUI events, call GLFW callbacks
         glfwPollEvents();
     }
-    rclcpp::shutdown(); 
+
+    if (close(shm_fd) == -1) {
+        perror("close");
+    }
+    // 공유 메모리 객체 삭제
+    if (shm_unlink(SHM_NAME) == -1) {
+        perror("shm_unlink");
+    } else {
+        std::cout << "Shared memory " << SHM_NAME << " successfully unlinked." << std::endl;
+    }
+
+   rclcpp::shutdown(); 
    
 }
 
@@ -318,7 +345,7 @@ int main(int argc, const char** argv)
 
     // use the first while condition if you want to simulate for a period.
     // std::thread physicsthreadhandle(&PhysicsThread,window);
-    // m->opt.timestep = 0.001;
+    
     auto message_handle = std::make_shared<MuJoCoMessageHandler>(MCL_model.get());
     auto spin_func = [](std::shared_ptr<MuJoCoMessageHandler> node_ptr) 
     {
@@ -341,7 +368,10 @@ int main(int argc, const char** argv)
     #endif
 
     // pthread_cancel(spin_thread);
+    
     spin_thread.join();
+    
+    
        
     return 1;
 }
